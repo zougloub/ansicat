@@ -224,7 +224,7 @@ class Ansi2Html(object):
 				self._write(txt)
 
 if __name__ == '__main__':
-	usage = "usage: %prog [options]\n%s" % __usage__
+	usage = "usage: %%prog [options]\n%s" % __usage__
 	version = "ansicat v0.1"
 	parser = OptionParser(usage=usage, version=version)
 	
