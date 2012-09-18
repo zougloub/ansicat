@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+# Convert vt100 escape characters into HTML
+
+__author__ = 'Jérôme Carretero <cJ-ansicat@zougloub.eu>'
+__copyright__ = '(c) 2012 %s' % __author__
+__license__ = '2-clause BSD'
+__credits__ = """
+ - `ansiterm`, ANSI terminal interpreter for Win32 console,
+   found in the waf build system (mostly by Thomas Nagy)
+ - `ansifilter`, doing mostly the same thing as this, by Andre Simon
+ """
+__usage__ = """
+
+... | ansi2html [options] | ...
+... | ansicat html [options] | ...
+
+ansicat takes text with ANSI escape codes in its standard input stream
+and outputs an interpretation of them on its standard output stream.
+
+Some codes are not understood, because they are made to handle terminal
+output. Better use a real terminal to render them (look for ansiwrap).
+
+If you need more customization, you can use the program as a Python library.
+
+"""
+
+import sys, os, re
+from optparse import OptionParser
+
+def to_int(x, y=0):
+	try: return int(x, 10)
+	except: return y
+	
+def rgb2html(c):
+	if c == 0:
+		return "#404040"
+	b = 0xff * ((c&4) >> 2)
+	g = 0xff * ((c&2) >> 1)
+	r = 0xff * ((c&1) << 0)
+	o = "#%02x%02x%02x" % (r, g, b)
+	return o
+
+class Ansi2Ansi(object):
+	def init(self): pass
+	def exit(self): pass
+	def write(self, txt): sys.stdout.buffer.write(txt)
+
+class Ansi2Html(object):
+	def __init__(self, **kw):
+		self.cursor_history = []
+		self.last_style = None
+		self.style_dict = {}
+		self.default_style = kw.get('default_style', {
+		 'color': '#a0a0a0',
+		 'background': '#000000',
+		 'font-family': 'Courier New',
+		 'font-size': '10pt',
+		})
+		self.title = kw.get('title', 'Console Output')
+
+	def _write(self, txt):
+		sys.stdout.buffer.write(txt)
+
+	def init(self):
+		self._write(b'<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">\n')
+		self._write(b"<html>\n")
+		self._write(b"<head>\n")
+		self._write(b' <meta http-equiv="content-type" content="text/html; charset=utf-8">\n')
+		self._write(b' <title>')
+		self._write(self.title.encode())
+		self._write(b'</title>\n')
+		self._write(b"</head>\n")
+		self._write(b'<body style="')
+		for k, v in self.default_style.items():
+			self._write(("%s:%s;" % (k, v)).encode())
+		self._write(b'"><pre>\n')
+
+	def exit(self):
+		if self.last_style is not None:
+			self._write(b'</span>')
+		self._write(b'</pre></body></html>\n')
+
+	def clear_line(self, param):
+		mode = param and int(param) or 0
+		if mode == 1: # Clear from begining of line to cursor position
+			pass
+		elif mode == 2: # Clear entire line
+			pass
+		else: # Clear from cursor position to end of line
+			pass
+		raise Exception('Todo')
+
+	def clear_screen(self, param):
+		mode = to_int(param, 0)
+		if mode == 1: # Clear from begining of screen to cursor position
+			pass
+		elif mode == 2: # Clear entire screen and return cursor to home
+			pass
+		else: # Clear from cursor position to end of screen
+			pass
+		raise Exception('Todo')
+
+	def push_cursor(self, param):
+		#self.cursor_history.append(sbinfo.CursorPosition)
+		raise Exception('Todo')
+
+	def pop_cursor(self, param):
+		if self.cursor_history:
+			old_pos = self.cursor_history.pop()
+		raise Exception('Todo')
+
+	def set_cursor(self, param):
+		y, sep, x = param.partition(';')
+		x = to_int(x, 1) - 1
+		y = to_int(y, 1) - 1
+		raise Exception('Todo')
+
+	def set_column(self, param):
+		x = to_int(param, 1) - 1
+		raise Exception('Todo')
+
+	def move_cursor(self, x_offset=0, y_offset=0):
+		raise Exception('Todo')
+
+	def move_up(self, param):
+		self.move_cursor(y_offset = -to_int(param, 1))
+
+	def move_down(self, param):
+		self.move_cursor(y_offset = to_int(param, 1))
+
+	def move_left(self, param):
+		self.move_cursor(x_offset = -to_int(param, 1))
+
+	def move_right(self, param):
+		self.move_cursor(x_offset = to_int(param, 1))
+
+	def next_line(self, param):
+		x = 0 # cursor position
+		self.move_cursor(
+			x_offset = -x,
+			y_offset = to_int(param, 1)
+		)
+
+	def _apply_style(self):
+		if self.last_style is None:
+			pass
+		else:
+			self._write(b'</span>')
+
+		if self.style_dict == {}:
+			attrs = None
+		else:
+			attrs = []
+			for k, v in self.style_dict.items():
+				attrs.append("%s:%s;" % (k, v))
+			attrs = "".join(attrs)
+			self._write(('<span style="%s">' % attrs).encode())
+		self.last_style = attrs
+
+	def prev_line(self, param):
+		x = 0 # cursor position
+		self.move_cursor(
+			x_offset = -x,
+			y_offset = -to_int(param, 1)
+		)
+		raise Exception('Todo')
+
+	def set_color(self, param):
+		cols = param.split(b';')
+		for c in cols:
+			c = to_int(c, 0)
+			if c in range(30,38):
+				self.style_dict['color'] = rgb2html(c-30)
+			elif c in range(40,48):
+				self.style_dict['background'] = rgb2html(c-40)
+			elif c == 0:
+				self.style_dict = {}
+			elif c == 1:
+				self.style_dict['font-weight'] = 'bold'
+			elif c == 4:
+				self.style_dict['text-decoration'] = 'blink'
+			elif c == 7:
+				fg = self.style_dict.get('color', self.default_style.get('color', "#a0a0a0"))
+				bg = self.style_dict.get('background', self.default_style.get('background', "#a0a0a0"))
+				self.style_dict['color'] = bg
+				self.style_dict['background'] = fg
+		self._apply_style()
+
+	def show_cursor(self,param):
+		raise Exception('Todo')
+
+	def hide_cursor(self,param):
+		raise Exception('Todo')
+
+	ansi_command_table = {
+		b'A': move_up,
+		b'B': move_down,
+		b'C': move_right,
+		b'D': move_left,
+		b'E': next_line,
+		b'F': prev_line,
+		b'G': set_column,
+		b'H': set_cursor,
+		b'f': set_cursor,
+		b'J': clear_screen,
+		b'K': clear_line,
+		b'h': show_cursor,
+		b'l': hide_cursor,
+		b'm': set_color,
+		b's': push_cursor,
+		b'u': pop_cursor,
+	}
+	# Match either the escape sequence or text not containing escape sequence
+	ansi_tokens = re.compile(b'(?:\x1b\[([0-9?;]*)([a-zA-Z])|([^\x1b]+))')
+	def write(self, text):
+		for param, cmd, txt in self.ansi_tokens.findall(text):
+			if cmd:
+				cmd_func = self.ansi_command_table.get(cmd)
+				if cmd_func:
+					cmd_func(self, param)
+			else:
+				txt = txt.replace(b'&', b'&amp;').replace(b'<', b'&lt;').replace(b'>', b'&gt;')
+				self._write(txt)
+
+if __name__ == '__main__':
+	usage = "usage: %prog [options]\n%s" % __usage__
+	version = "ansicat v0.1"
+	parser = OptionParser(usage=usage, version=version)
+	
+	parser.add_option(
+	 "-t", "--title",
+	 dest="title",
+	 default='Terminal output',
+	 help="HTML page title",
+	)
+	
+	(options, args) = parser.parse_args()
+	
+	tool = os.path.basename(sys.argv[0])
+
+	if tool not in ('ansicat', 'ansi2html') or (tool == 'ansicat' and len(args) == 0):
+		parser.print_usage(file=sys.stderr)
+		parser.exit(-1)
+	
+	if os.path.basename(sys.argv[0]) == 'ansi2html' or (args[0] == 'html'):
+		a = Ansi2Html(title=options.title)
+	else:
+		a = Ansi2Ansi()
+	
+	a.init()
+	while True:
+		x = sys.stdin.buffer.readline()
+		if x == b'':
+			break
+		a.write(x)
+	a.exit()
+
