@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+
+import sys, difflib, optparse, re
+
+def main():
+	usage = "usage: %prog [options] fromfile tofile"
+	parser = optparse.OptionParser(usage)
+	(options, args) = parser.parse_args()
+
+	if len(args) == 0:
+		parser.print_help()
+		sys.exit(1)
+	if len(args) != 2:
+		parser.error("need to specify both a fromfile and tofile")
+
+	fromfile, tofile = args # as specified in the usage string
+
+	ansi_tokens = re.compile(b'(?:\x1b\[([0-9?;]*)([a-zA-Z])|([^\x1b]+))')
+
+	def filter(text):
+		out = []
+		for param, cmd, txt in ansi_tokens.findall(text):
+			if cmd:
+				pass
+			else:
+				out.append(txt)
+		return (b"".join(out)).decode(sys.stdout.encoding, 'replace')
+
+	a = []
+	a_filtered = []
+	with open(fromfile, "rb") as f:
+		for x in f:
+			x = x.rstrip()
+			a.append(x)
+			a_filtered.append(filter(x))
+	
+	b = []
+	b_filtered = []
+	with open(tofile, "rb") as f:
+		for x in f:
+			x = x.rstrip()
+			b.append(x)
+			b_filtered.append(filter(x))
+
+	diff = difflib._mdiff(a_filtered, b_filtered, None)
+
+	ncols = 0
+	for x in a_filtered:
+		if len(x) > ncols:
+			ncols = len(x)
+	for x in b_filtered:
+		if len(x) > ncols:
+			ncols = len(x)
+
+	for f,t,d in diff:
+		la, ta = f
+		lb, tb = t
+		if d:
+			if lb == '':
+				ao = a[la-1]
+				af = a_filtered[la-1]
+				sys.stdout.buffer.write(ao.ljust(ncols + len(ao) - len(af)))
+				sys.stdout.buffer.write(b" \x1B[31;1m>\x1B[0m ")
+				sys.stdout.buffer.write(b' ' * ncols)
+			elif la == '':
+				bo = b[lb-1]
+				bf = b_filtered[lb-1]
+				sys.stdout.buffer.write(b' ' * ncols)
+				sys.stdout.buffer.write(b" \x1B[32;1m<\x1B[0m ")
+				sys.stdout.buffer.write(bo.ljust(ncols))
+			else:
+				ao = a[la-1]
+				af = a_filtered[la-1]
+				bo = b[lb-1]
+				bf = b_filtered[lb-1]
+				sys.stdout.buffer.write(ao.ljust(ncols + len(ao) - len(af)))
+				sys.stdout.buffer.write(b" \x1B[33;1m|\x1B[0m ")
+				sys.stdout.buffer.write(b[lb-1].ljust(ncols))
+		else:
+			ao = a[la-1]
+			af = a_filtered[la-1]
+			sys.stdout.buffer.write(ao.ljust(ncols + len(ao) - len(af)))
+			sys.stdout.buffer.write(b" = ")
+			sys.stdout.buffer.write(b[lb-1].ljust(ncols))
+		sys.stdout.buffer.write(b"\n")
+
+if __name__ == '__main__':
+	main()
+
