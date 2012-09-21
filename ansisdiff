@@ -5,6 +5,23 @@ import sys, difflib, optparse, re
 def main():
 	usage = "usage: %prog [options] fromfile tofile"
 	parser = optparse.OptionParser(usage)
+
+
+	parser.add_option(
+	 "-e", "--encoding",
+	 dest="encoding",
+	 default=sys.stdout.encoding,
+	 help="Input files encoding (defaults to terminal encoding)",
+	)
+
+	parser.add_option(
+	 "-w", "--width",
+	 dest="width",
+	 type='int',
+	 default=0,
+	 help="max. line length in output",
+	)
+
 	(options, args) = parser.parse_args()
 
 	if len(args) == 0:
@@ -18,71 +35,107 @@ def main():
 	ansi_tokens = re.compile(b'(?:\x1b\[([0-9?;]*)([a-zA-Z])|([^\x1b]+))')
 
 	def filter(text):
+		return text.decode(options.encoding, 'replace')
+	
+	def filter_textonly(text):
 		out = []
 		for param, cmd, txt in ansi_tokens.findall(text):
 			if cmd:
 				pass
 			else:
 				out.append(txt)
-		return (b"".join(out)).decode(sys.stdout.encoding, 'replace')
+		return (b"".join(out)).decode(options.encoding, 'replace')
 
 	a = []
 	a_filtered = []
+	a_s = []
 	with open(fromfile, "rb") as f:
 		for x in f:
 			x = x.rstrip()
 			a.append(x)
-			a_filtered.append(filter(x))
+			a_filtered.append(filter_textonly(x))
+			a_s.append(filter(x))
 	
 	b = []
 	b_filtered = []
+	b_s = []
 	with open(tofile, "rb") as f:
 		for x in f:
 			x = x.rstrip()
 			b.append(x)
-			b_filtered.append(filter(x))
+			b_filtered.append(filter_textonly(x))
+			b_s.append(filter(x))
 
-	diff = difflib._mdiff(a_filtered, b_filtered, None)
+	diff = difflib._mdiff(a_s, b_s, None)
 
-	ncols = 0
-	for x in a_filtered:
-		if len(x) > ncols:
-			ncols = len(x)
-	for x in b_filtered:
-		if len(x) > ncols:
-			ncols = len(x)
+	ncols = options.width
+	if ncols <= 0:
+		for x in a_filtered:
+			if len(x) > ncols:
+				ncols = len(x)
+		for x in b_filtered:
+			if len(x) > ncols:
+				ncols = len(x)
+	else:
+		print("Columns: %s" % ncols)
 
+
+	def just(x, cols):
+		#return x.ljust(c)[:c]
+		o = []
+		i = 0
+		state = 0
+		for c in x:
+			if state == 0 and c == ord('\x1B'):
+				state = 1
+				o.append(c)
+			elif state == 1 and c == ord('['):
+				state = 2
+				o.append(c)
+			elif state == 2 and c in b'0123456789;':
+				o.append(c)
+			elif state == 2 and c in b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz':
+				o.append(c)
+				state = 0
+			else:
+				o.append(c)
+				i += 1
+			if i >= cols:
+				break
+
+		while i < cols:
+			o.append(0x20)
+			i += 1
+
+		return bytes(o) + b'\x1B[0m'
+
+	write = sys.stdout.buffer.write
 	for f,t,d in diff:
 		la, ta = f
 		lb, tb = t
 		if d:
 			if lb == '':
 				ao = a[la-1]
-				af = a_filtered[la-1]
-				sys.stdout.buffer.write(ao.ljust(ncols + len(ao) - len(af)))
-				sys.stdout.buffer.write(b" \x1B[31;1m>\x1B[0m ")
-				sys.stdout.buffer.write(b' ' * ncols)
+				write(just(ao, ncols))
+				write(b" \x1B[31;1m>\x1B[0m ")
+				write(b' ' * ncols)
 			elif la == '':
 				bo = b[lb-1]
-				bf = b_filtered[lb-1]
-				sys.stdout.buffer.write(b' ' * ncols)
-				sys.stdout.buffer.write(b" \x1B[32;1m<\x1B[0m ")
-				sys.stdout.buffer.write(bo.ljust(ncols))
+				write(b' ' * ncols)
+				write(b" \x1B[32;1m<\x1B[0m ")
+				write(just(bo, ncols))
 			else:
 				ao = a[la-1]
-				af = a_filtered[la-1]
 				bo = b[lb-1]
-				bf = b_filtered[lb-1]
-				sys.stdout.buffer.write(ao.ljust(ncols + len(ao) - len(af)))
-				sys.stdout.buffer.write(b" \x1B[33;1m|\x1B[0m ")
-				sys.stdout.buffer.write(b[lb-1].ljust(ncols))
+				write(just(ao, ncols))
+				write(b" \x1B[33;1m|\x1B[0m ")
+				write(just(bo, ncols))
 		else:
 			ao = a[la-1]
-			af = a_filtered[la-1]
-			sys.stdout.buffer.write(ao.ljust(ncols + len(ao) - len(af)))
-			sys.stdout.buffer.write(b" = ")
-			sys.stdout.buffer.write(b[lb-1].ljust(ncols))
-		sys.stdout.buffer.write(b"\n")
+			write(just(ao, ncols))
+			write(b" = ")
+			write(just(ao, ncols))
+		write(b"\n")
 
 if __name__ == '__main__':
 	main()
