@@ -22,6 +22,21 @@ def main():
 	 help="max. line length in output",
 	)
 
+	parser.add_option(
+	 "-t", "--tabwidth",
+	 dest="tabwidth",
+	 type='int',
+	 default=8,
+	 help="tabulation width",
+	)
+
+	parser.add_option(
+	 "-T", "--tab2spaces",
+	 dest="tab2spaces",
+	 action='store_true',
+	 help="transform tabulation to space",
+	)
+
 	(options, args) = parser.parse_args()
 
 	if len(args) == 0:
@@ -76,9 +91,11 @@ def main():
 		for x in b_filtered:
 			if len(x) > ncols:
 				ncols = len(x)
-	else:
-		print("Columns: %s" % ncols)
 
+	ESC = ord('\x1B')
+	TAB = ord('\t')
+	LSQ = ord('[')
+	SPC = ord(' ')
 
 	def just(x, cols):
 		#return x.ljust(c)[:c]
@@ -86,10 +103,10 @@ def main():
 		i = 0
 		state = 0
 		for c in x:
-			if state == 0 and c == ord('\x1B'):
+			if state == 0 and c == ESC:
 				state = 1
 				o.append(c)
-			elif state == 1 and c == ord('['):
+			elif state == 1 and c == LSQ:
 				state = 2
 				o.append(c)
 			elif state == 2 and c in b'0123456789;':
@@ -98,13 +115,22 @@ def main():
 				o.append(c)
 				state = 0
 			else:
-				o.append(c)
-				i += 1
+				if c == TAB:
+					nspc = options.tabwidth - (i % options.tabwidth)
+					if options.tab2spaces:
+						o += [SPC] * nspc
+						i += nspc
+					else:
+						o.append(c)
+						i += nspc
+				else:
+					o.append(c)
+					i += 1
 			if i >= cols:
 				break
 
 		while i < cols:
-			o.append(0x20)
+			o.append(SPC)
 			i += 1
 
 		return bytes(o) + b'\x1B[0m'
